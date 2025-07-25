@@ -1,0 +1,553 @@
+all necessary commands
+
+
+Jenkins - 
+ssh -i /Users/tejasbhandirge/Downloads/qst-jenkins-key.pem ubuntu@13.58.19.219
+
+Agent -
+ssh -i /Users/tejasbhandirge/Downloads/qst-jenkins-key.pem ubuntu@13.59.89.80
+
+
+K8s kubeadm cluster
+
+Master 
+
+ssh -i /Users/tejasbhandirge/Downloads/qst-jenkins-key.pem ubuntu@3.144.139.7
+
+
+Worker
+
+ssh -i /Users/tejasbhandirge/Downloads/qst-jenkins-key.pem ubuntu@18.191.5.64
+
+-------------------------------------------------------------------------------------------------------------------------------------
+To setup kubeadm cluster
+
+Login to master and worker instance 
+
+git clone https://github.com/tejas-b25/k8s-kubeadm-cluster-creation.git
+cd k8s-kubeadm-cluster-creation/
+Chmod +x *
+
+On worker execute worker.sh 
+On master execute master.sh and on-master.sh - copy the ticket generated and paste it on worker(sudo <ticket copied>)
+
+-------------------------------------------------------------------------------------------------------------------------------------
+To setup jenkins 
+
+Java install -
+
+sudo apt update
+sudo apt install fontconfig openjdk-21-jre
+
+Jenkins install -
+
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc \
+  https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc]" \
+  https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
+  /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+sudo apt-get install jenkins
+
+sudo systemctl enable jenkins
+
+
+Login into jenkins you will get key from here
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+
+On jenkins instance 
+
+ssh-keygen (press enter for all)
+cd .ssh
+authorized_keys  id_ed25519  id_ed25519.pub 
+
+cat id_ed25519 (private key)
+
+cat id_ed25519.pub. (public key)
+
+
+
+optional
+
+add plugins
+pipeline : stage view
+
+
+------------------------------------------------------
+To setup agent
+
+Java install in agent instance-
+
+sudo apt update
+sudo apt install fontconfig openjdk-21-jre
+
+
+click manage jenkins(on top right corner setting icon)
+
+nodes > new node
+node name - agent
+click on Permanent Agent
+name - agent
+description - this is jenkins agent
+remote root directory - /home/ubuntu/
+labels - agent
+launch method - launch agent vis ssh
+host - <agent-ip>
+creditantials > add > jenkins >
+kind - ssh username with private key
+id - jenkins-key
+description - jenkins-key
+username - ubuntu
+private key > enter directly > add
+paste private key
+done
+
+in crediatials dropdown select the created one
+
+Host Key Verification Strategy - no verifying verification strategy
+
+
+on agent instance 
+
+cd .ssh
+vi authorized_keys
+paste public key from jenkins agent
+
+-------------------------------------------------------------------------------------------------------------------------------------
+To connect jenkins with kubeadm cluster
+
+Login to kubeadm master instance
+
+run below command on kubeadm master instance
+sudo cat /etc/kubernetes/admin.conf
+
+copy all text and paste it in text file name admin.conf
+
+go to jenkins webpage
+
+go to manage jenkins > credentials > global > add credentials
+
+kind - secret file
+choose the adnim.conf file
+
+id - k8s-id
+description - KUBECONFIG
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------
+Manual installation to de done on jenkins and agent
+
+
+# Install docker and docker compose on jenkins agent
+
+sudo apt update
+sudo apt install -y docker.io curl
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo usermod -aG docker ubuntu
+
+ 
+mkdir -p ~/.docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+-o ~/.docker/cli-plugins/docker-compose
+chmod +x ~/.docker/cli-plugins/docker-compose
+ 
+docker --version
+docker compose version || true
+
+
+#Install kubectl on jenkins agent
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+
+# Update the package list and install kubelet, kubeadm, and kubectl
+
+echo "Updating package list and installing kubelet, kubeadm, and kubectl..."
+sudo apt-get update -y
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+Important installations to create backend jar file (target directory will be created )
+
+
+sudo apt install maven
+java -version
+sudo apt update
+sudo apt install openjdk-17-jdk
+sudo update-alternatives --config java
+mvn clean install -Dmaven.test.skip=true
+
+------------------------------------------------------
+
+Important installations to create frontend Dist file
+
+
+
+sudo apt remove -y nodejs npm
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g @angular/cli@17
+
+rm -rf node_modules package-lock.json
+npm install
+ng build --configuration production
+
+-------------------------------------------------------------------------------------------------------------------------------------
+Shared libraries 
+
+
+Create a folder name vars
+
+In vars folder write all groovy scripts 
+
+Jenkins-shared-libraries/vars/hello.groovy
+
+def call(){
+  echo"hello-this is hrms application"
+}
+
+
+Jenkins-shared-libraries/vars/clone.groovy
+
+def call(String url, String branch){
+  git url: url, branch: branch
+echo"clone successful"
+}
+
+
+Jenkins-shared-libraries/vars/docker.groovy
+
+def call(String imagename, String tag, String username){
+  sh"docker build -t ${username}/${imagename}:${tag} ."
+}
+
+
+All this will be called by jenkins piepeline
+-------------------------------------------------------------------------------------------------------------------------------------
+
+Pipeline with shared libraries
+
+
+@Library("shared") _
+pipeline {
+    agent { label "agent" }
+
+    environment {
+        FRONTEND_IMAGE = 'tejas2506/frontend-hrms:t1'
+        BACKEND_IMAGE  = 'tejas2506/backend-hrms:t1'
+        DOCKERHUB_CREDENTIALS = 'docker'
+        DOCKERHUB_USER        = 'tejas2506'
+    }
+
+    stages {
+        stage('hello') {
+            steps {
+                script{
+                hello()
+                }
+            }
+        }
+        stage('Clone') {
+            steps {
+                script{
+                clone("https://github.com/tejas-b25/QST_HRMS.git", "main")
+                }
+            }
+        }
+        stage('Cloneinstall') {
+            steps {
+                dir('installations') {
+                script{
+                clone("https://github.com/tejas-b25/installations-for-jenkins.git", "main")
+                    sh '''
+                        chmod +x installation.sh
+                        ./installation.sh
+                    '''
+                    }
+                }
+            }
+        }
+
+        stage('Build Backend') {
+            steps {
+                dir('Backend') {
+                    sh '''
+                        sudo apt update
+                        sudo apt install -y openjdk-17-jdk maven
+                        java -version
+                        mvn clean install -Dmaven.test.skip=true
+                         '''
+                script{
+                    docker("backend-hrms", "t3", "tejas2506")
+                    }
+                }
+            }
+        }
+
+        stage('Build Frontend') {
+            steps {
+                dir('Frontend') {
+                    sh '''
+                        sudo apt remove -y nodejs npm
+                        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+                        sudo apt install -y nodejs
+                        sudo npm install -g @angular/cli@17
+                        rm -rf node_modules package-lock.json
+                        npm install
+                        ng build --configuration production
+                    '''
+                    script{
+                    docker("frontend-hrms", "t3", "tejas2506")
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+Normal pipeline 
+
+pipeline {
+    agent {label "agent"}
+
+    environment {
+        FRONTEND_IMAGE = 'tejas2506/frontend:t1'
+        BACKEND_IMAGE  = 'tejas2506/backend:t1'
+        DOCKERHUB_CREDENTIALS = 'docker'
+        DOCKERHUB_USER        = 'tejas2506'
+    }
+    
+    stages {
+        stage('git clone') {
+            steps {
+                git branch: 'main', url: 'https://github.com/tejas-b25/quantumsoft-docker-compose.git'
+            }
+        }
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | sudo docker login -u "$DOCKER_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+        stage('Build & Push Backend Image') {
+            steps {
+                    sh '''
+                    docker build -t $BACKEND_IMAGE .
+                    docker push $BACKEND_IMAGE
+                    '''
+            }
+        }
+        stage('Build & Push Frontend Image') {
+            steps {
+                dir('qfrontend') {
+                    sh '''
+                    docker build -t $FRONTEND_IMAGE .
+                    docker push $FRONTEND_IMAGE
+                    '''
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                dir('k8s') {
+                    withCredentials([file(credentialsId: 'jenkins-id', variable: 'KUBECONFIG')]) {
+                        sh 'kubectl delete all --all'
+                        sh 'kubectl apply -f frontend-deployment.yaml'
+                        sh 'kubectl apply -f backend-deployment.yaml'
+                        sh 'kubectl apply -f mysql-deployment.yaml'
+                        sh '''
+                        i=1
+                        while [ $i -le 6 ]
+                        do
+                            echo "Attempt $i: Waiting 10 seconds..."
+                            sleep 10
+                            kubectl get all
+                            i=$((i+1))
+                        done
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+HRMS application on docker compose and kubernetes
+
+
+
+pipeline {
+    agent { label 'agent' }
+
+    environment {
+        DOCKERHUB_CREDENTIALS = 'docker'
+        DOCKERHUB_USERNAME = 'tejas2506'
+        FRONTEND_IMAGE = 'tejas2506/hrms-frontend:v1'
+        BACKEND_IMAGE = 'tejas2506/hrms-backend:v1'
+    }
+
+    stages {
+        stage('Git Clone') {
+            steps {
+                git branch: 'main', url: 'https://github.com/tejas-b25/HRMS-app.git'
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+        stage('Build & Push Backend Image') {
+            steps {
+                dir('backend') {
+                    sh '''
+                    docker build -t $BACKEND_IMAGE .
+                    docker push $BACKEND_IMAGE
+                    '''
+                }
+            }
+        }
+        stage('Build & Push Frontend Image') {
+            steps {
+                dir('frontend') {
+                    sh '''
+                    docker build -t $FRONTEND_IMAGE .
+                    docker push $FRONTEND_IMAGE
+                    '''
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                        sh 'docker compose down'
+                        sh 'docker compose up -d'
+                        sh 'docker ps -a'
+                dir('k8s') {
+                    withCredentials([file(credentialsId: 'k8s-id', variable: 'KUBECONFIG')]) {
+                        sh 'kubectl delete all --all'
+                        sh 'kubectl apply -f .'
+                        sh '''
+                        i=1
+                        while [ $i -le 6 ]
+                        do
+                            echo "Attempt $i: Waiting 10 seconds..."
+                            sleep 10
+                            kubectl get all
+                            i=$((i+1))
+                        done
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
+
+------------------------------------------------------------------------------------------------------------------------------------
+latest hrms application without cross origin issue pipeline
+
+pipeline {
+    agent { label 'agent' }
+
+    environment {
+        DOCKERHUB_CREDENTIALS = 'docker'
+        DOCKERHUB_USERNAME = 'tejas2506'
+        FRONTEND_IMAGE = 'tejas2506/hrms-frontend:d1'
+        BACKEND_IMAGE = 'tejas2506/hrms-backend:d1'
+    }
+
+    stages {
+        stage('Git Clone') {
+            steps {
+                git branch: 'main', url: 'https://github.com/tejas-b25/hrms-tej.git'
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Build & Push Backend Image') {
+            steps {
+                dir('Backend_hrms') {
+                    sh '''
+                        docker build -t $BACKEND_IMAGE .
+                        docker push $BACKEND_IMAGE
+                    '''
+                }
+            }
+        }
+
+        stage('Build & Push Frontend Image') {
+            steps {
+                dir('frontend') {
+                    sh '''
+                        docker build -t $FRONTEND_IMAGE .
+                        docker push $FRONTEND_IMAGE
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Using Docker Compose') {
+            steps {
+                sh '''
+                    docker compose down
+                    docker compose up -d
+                    docker ps -a
+                '''
+                withCredentials([file(credentialsId: 'k8s-id', variable: 'KUBECONFIG')]) {
+                        sh 'kubectl delete all --all'
+                        sh 'kubectl apply -f deployment.yml'
+                        sh '''
+                        i=1
+                        while [ $i -le 6 ]
+                        do
+                            echo "Attempt $i: Waiting 10 seconds..."
+                            sleep 10
+                            kubectl get all
+                            i=$((i+1))
+                        done
+                        '''
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+
